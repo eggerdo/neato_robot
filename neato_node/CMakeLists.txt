@@ -11,6 +11,7 @@ add_service_files(
   FILES
   SetVacuum.srv
   SetBrush.srv
+  SetLdr.srv
 )
 
 generate_messages(

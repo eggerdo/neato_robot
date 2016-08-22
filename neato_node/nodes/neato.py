@@ -42,7 +42,7 @@ from nav_msgs.msg import Odometry
 from tf.broadcaster import TransformBroadcaster
 
 from neato_driver.neato_driver import xv11, BASE_WIDTH, MAX_SPEED
-from neato_node.srv import SetBrush, SetBrushResponse, SetVacuum, SetVacuumResponse
+from neato_node.srv import SetBrush, SetBrushResponse, SetVacuum, SetVacuumResponse, SetLdr, SetLdrResponse
 
 class NeatoNode:
 
@@ -71,6 +71,7 @@ class NeatoNode:
 
         self.set_brush_srv = rospy.Service('~set_brush', SetBrush, self.set_brush)
         self.set_vacuum_srv = rospy.Service('~set_vacuum', SetVacuum, self.set_vacuum)
+        self.set_ldr_srv = rospy.Service('~set_ldr', SetLdr, self.set_ldr)
 
         rospy.Subscriber("cmd_vel", Twist, self.cmdVelCb)
         self.scanPub = rospy.Publisher('base_scan', LaserScan, queue_size=10)
@@ -236,6 +237,17 @@ class NeatoNode:
     def set_vacuum(self, req):
         self.robot.setVacuum(req.speed)
         return SetVacuumResponse(True)
+
+    def set_ldr(self, req):
+        if req.enable == True:
+            self.ldr = True
+            rospy.loginfo("enable ldr")
+            self.robot.setLDS("on")
+        else:
+            self.ldr = False
+            rospy.loginfo("disable ldr")
+            self.robot.setLDS("off")
+        return SetLdrResponse(True)
 
 def onShutdown():
     rospy.loginfo("shutting down")
