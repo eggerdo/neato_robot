@@ -61,6 +61,7 @@ class NeatoNode:
         self.port = rospy.get_param('~port', "/dev/ttyUSB0")
         self.stop_motors_on_bump = rospy.get_param('~stop_motors_on_bump', True)
         self.cmd_vel_timeout = rospy.Duration(rospy.get_param('~cmd_vel_timeout', 0.6))
+        self.ldr = rospy.Duration(rospy.get_param('~ldr', True))
         self.move = rospy.get_param('~move', True)
         self.publish_tf = rospy.get_param('~publish_tf', True)
 
@@ -104,6 +105,9 @@ class NeatoNode:
 
         rospy.sleep(rospy.Duration(1, 0))
 
+        if self.ldr:
+            self.robot.setLDS("on")
+
         # main loop of driver
         r = rospy.Rate(5)
         self.robot.requestScan()
@@ -114,10 +118,12 @@ class NeatoNode:
             # scan.header.stamp = rospy.Time.now()
             scan.header.stamp = curr_time
             #self.robot.requestScan()
-            scan.ranges = self.robot.getScanRanges()
 
-            if not scan.ranges:
-                continue
+            if self.ldr:
+                scan.ranges = self.robot.getScanRanges()
+
+                if not scan.ranges:
+                    continue
 
             # get motor encoder values
             left, right = self.robot.getMotors()
@@ -149,8 +155,9 @@ class NeatoNode:
             # record command
             last_cmd_vel = req_cmd_vel
 
-            # ask for the next scan while we finish processing stuff
-            self.robot.requestScan()
+            if self.ldr:
+                # ask for the next scan while we finish processing stuff
+                self.robot.requestScan()
 
             # now update position information
             dt = (scan.header.stamp - then).to_sec()
