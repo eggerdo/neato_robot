@@ -33,66 +33,58 @@ ROS Bindings can be found in the neato_node package.
 __author__ = "ferguson@cs.albany.edu (Michael Ferguson)"
 
 import serial
+import rospy
 
 BASE_WIDTH = 248    # millimeters
 MAX_SPEED = 300     # millimeters/second
 
+BRUSH_MAX_RPM = 500
+VACUUM_MAX_SPEED = 100
+
 xv11_analog_sensors = [ "WallSensorInMM",
-                "BatteryVoltageInmV",
-                "LeftDropInMM",
-                "RightDropInMM",
-                "RightMagSensor",
-                "LeftMagSensor",
-                "XTemp0InC",
-                "XTemp1InC",
-                "VacuumCurrentInmA",
-                "ChargeVoltInmV",
-                "NotConnected1",
-                "BatteryTemp1InC",
-                "NotConnected2",
-                "CurrentInmA",
-                "NotConnected3",
-                "BatteryTemp0InC" ]
+                        "BatteryVoltageInmV",
+                        "LeftDropInMM",
+                        "RightDropInMM",
+                        "LeftMagSensor",
+                        "RightMagSensor",
+                        "UIButtonInmV",
+                        "VacuumCurrentInmA",
+                        "ChargeVoltInmV",
+                        "BatteryTemp0InC",
+                        "BatteryTemp1InC",
+                        "CurrentInmA",
+                        "SideBrushCurrentInmA",
+                        "VoltageReferenceInmV",
+                        "AccelXInmG",
+                        "AccelYInmG",
+                        "AccelZInmG" ]
 
 xv11_digital_sensors = [ "SNSR_DC_JACK_CONNECT",
-                "SNSR_DUSTBIN_IS_IN",
-                "SNSR_LEFT_WHEEL_EXTENDED",
-                "SNSR_RIGHT_WHEEL_EXTENDED",
-                "LSIDEBIT",
-                "LFRONTBIT",
-                "RSIDEBIT",
-                "RFRONTBIT" ]
+                        "SNSR_DUSTBIN_IS_IN",
+                        "SNSR_LEFT_WHEEL_EXTENDED",
+                        "SNSR_RIGHT_WHEEL_EXTENDED",
+                        "LSIDEBIT",
+                        "LFRONTBIT",
+                        "RSIDEBIT",
+                        "RFRONTBIT" ]
 
-xv11_motor_info = [ "Brush_MaxPWM",
-                "Brush_PWM",
-                "Brush_mVolts",
-                "Brush_Encoder",
-                "Brush_RPM",
-                "Vacuum_MaxPWM",
-                "Vacuum_PWM",
-                "Vacuum_CurrentInMA",
-                "Vacuum_Encoder",
-                "Vacuum_RPM",
-                "LeftWheel_MaxPWM",
-                "LeftWheel_PWM",
-                "LeftWheel_mVolts",
-                "LeftWheel_Encoder",
-                "LeftWheel_PositionInMM",
-                "LeftWheel_RPM",
-                "RightWheel_MaxPWM",
-                "RightWheel_PWM",
-                "RightWheel_mVolts",
-                "RightWheel_Encoder",
-                "RightWheel_PositionInMM",
-                "RightWheel_RPM",
-                "Laser_MaxPWM",
-                "Laser_PWM",
-                "Laser_mVolts",
-                "Laser_Encoder",
-                "Laser_RPM",
-                "Charger_MaxPWM",
-                "Charger_PWM",
-                "Charger_mAH" ]
+xv11_motor_info = [ "Brush_RPM",
+                    "Brush_mA",
+                    "Vacuum_RPM",
+                    "Vacuum_mA",
+                    "LeftWheel_RPM",
+                    "LeftWheel_Load",
+                    "LeftWheel_PositionInMM",
+                    "LeftWheel_Speed",
+                    "RightWheel_RPM",
+                    "RightWheel_Load",
+                    "RightWheel_PositionInMM",
+                    "RightWheel_Speed",
+                    "Charger_mAH",
+                    "SideBrush_mA" ]
+
+
+
 
 xv11_charger_info = [ "FuelPercent",
                 "BatteryOverTemp",
@@ -109,8 +101,7 @@ xv11_charger_info = [ "FuelPercent",
                 "BattTempCAvg[1]",
                 "VBattV",
                 "VExtV",
-                "Charger_mAH",
-                "MaxPWM" ]
+                "Charger_mAH" ]
 
 class xv11():
 
@@ -121,9 +112,10 @@ class xv11():
         self.stop_state = True
         # turn things on
         self.setTestMode("on")
-        self.setLDS("on")
+        # self.setLDS("on")
 
     def exit(self):
+        pass
         self.setLDS("off")
         self.setTestMode("off")
 
@@ -137,28 +129,36 @@ class xv11():
     def requestScan(self):
         """ Ask neato for an array of scan reads. """
         self.port.flushInput()
+        # rospy.loginfo("getldsscan")
         self.port.write("getldsscan\n")
 
     def getScanRanges(self):
         """ Read values of a scan -- call requestScan first! """
         ranges = list()
         angle = 0
+        # rospy.loginfo("getScanRanges")
         try:
             line = self.port.readline()
+            # rospy.loginfo("line: %s" %line)
         except:
+            rospy.logerr("failed")
             return []
-        while line.split(",")[0] != "AngleInDegrees":
+        while line.lstrip(str(unichr(26))).split(",")[0] != "AngleInDegrees":
             try:
                 line = self.port.readline()
+                # rospy.loginfo("line: %s" %line)
             except:
+                rospy.logerr("failed")
                 return []
         while angle < 360:
             try:
                 vals = self.port.readline()
             except:
-                pass
+                rospy.logerr("failed")
+                return []
             vals = vals.split(",")
             #print angle, vals
+            # rospy.loginfo("angle: %d, value: %s" %(angle, vals))
             try:
                 a = int(vals[0])
                 r = int(vals[1])
@@ -166,14 +166,17 @@ class xv11():
             except:
                 ranges.append(0)
             angle += 1
+
+        # rospy.loginfo(ranges)
+
         return ranges
 
-    def setMotors(self, l, r, s):
+    def setDriveMotors(self, l, r, s):
         """ Set motors, distance left & right + speed """
         #This is a work-around for a bug in the Neato API. The bug is that the
         #robot won't stop instantly if a 0-velocity command is sent - the robot
         #could continue moving for up to a second. To work around this bug, the
-        #first time a 0-velocity is sent in, a velocity of 1,1,1 is sent. Then, 
+        #first time a 0-velocity is sent in, a velocity of 1,1,1 is sent. Then,
         #the zero is sent. This effectively causes the robot to stop instantly.
         if (int(l) == 0 and int(r) == 0 and int(s) == 0):
             if (not self.stop_state):
@@ -184,7 +187,30 @@ class xv11():
         else:
             self.stop_state = False
 
+        # rospy.loginfo("setmotor "+str(int(l))+" "+str(int(r))+" "+str(int(s)))
         self.port.write("setmotor "+str(int(l))+" "+str(int(r))+" "+str(int(s))+"\n")
+
+    def setBrush(self, speed):
+        if (speed > 100):
+            speed = 100
+
+        rpm = int(BRUSH_MAX_RPM / 100 * speed)
+        cmd = "RPM %d Brush" %rpm
+
+        rospy.loginfo("setmotor RPM %d Brush" %rpm)
+        self.port.write("setmotor RPM %d Brush\n" %rpm)
+
+    def setVacuum(self, speed):
+        if (speed > 100):
+            speed = 100
+
+        if speed == 0:
+            cmd = "VacuumOff"
+        else:
+            cmd = "VacuumOn VacuumSpeed %d" %speed
+
+        rospy.loginfo("setmotor %s" %cmd)
+        self.port.write("setmotor %s\n" %cmd)
 
     def getMotors(self):
         """ Update values for motors in the self.state dictionary.
@@ -203,6 +229,7 @@ class xv11():
                 self.state[values[0]] = int(values[1])
             except:
                 pass
+
         return [self.state["LeftWheel_PositionInMM"],self.state["RightWheel_PositionInMM"]]
 
     def getAnalogSensors(self):
